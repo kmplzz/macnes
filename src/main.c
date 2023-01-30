@@ -1,6 +1,7 @@
-#include <stdio.h>
+#include "nes.h"
 
 int main() {
-    printf("Hello, World!\n");
+    NES nes = nes_init();
+    cpu_clock(nes.cpu);
     return 0;
 }
