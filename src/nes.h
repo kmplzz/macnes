@@ -21,9 +21,9 @@ NES nes_init() {
 }
 
 void nes_shutdown(NES nes) {
-    free(nes.ram);
-    free(nes.cpu);
-    free(nes.bus);
+    ram_destroy(nes.ram);
+    cpu_destroy(nes.cpu);
+    bus_destroy(nes.bus);
 }
 
 #endif

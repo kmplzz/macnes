@@ -5,6 +5,8 @@
 
 Bus* bus_init();
 
+void bus_destroy(Bus *bus);
+
 void bus_connect_ram(Bus *bus, RAM *ram);
 
 void bus_connect_cpu(Bus *bus, CPU *cpu);

@@ -3,8 +3,11 @@
 #include "ram.h"
 
 Bus* bus_init() {
-    Bus *bus = malloc(sizeof(Bus));
-    return bus;
+    return (Bus*) calloc(1, sizeof(Bus));
+}
+
+void bus_destroy(Bus *bus) {
+    free(bus);
 }
 
 void bus_connect_ram(Bus *bus, RAM *ram) {

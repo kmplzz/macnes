@@ -5,6 +5,8 @@
 
 CPU* cpu_init();
 
+void cpu_destroy(CPU *cpu);
+
 void cpu_clock(CPU *cpu);
 
 #endif
