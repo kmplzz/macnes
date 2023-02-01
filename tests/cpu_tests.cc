@@ -93,7 +93,7 @@ TEST(SUITE, check_am_rel) {
     nes_shutdown(nes);
 }
 
-TEST(SUITE, check_am_rel1) {
+TEST(SUITE, check_am_rel_negative) {
     NES nes = nes_init();
     CPU *cpu = nes.cpu;
     ram_write(nes.ram, 0, 0xFA);
