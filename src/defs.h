@@ -2,6 +2,7 @@
 #define MACNES_DEFS_H
 
 #include "stdint.h"
+#include "stdbool.h"
 
 #define RAM_SIZE 64 * 1024
 
@@ -23,13 +24,24 @@ typedef struct {
     uint8_t     status;
     uint16_t    pc;
 
-    uint8_t     fetched;
     uint16_t    addr_abs;
     uint16_t    addr_rel;
     uint8_t     opcode;
+    bool        is_am_imm;
     uint8_t     cycles;
     uint32_t    clock_count;
 } CPU;
+
+enum CpuFlag {
+    C = (1 << 0),
+    Z = (1 << 1),
+    I = (1 << 2),
+    D = (1 << 3),
+    B = (1 << 4),
+    U = (1 << 5),
+    V = (1 << 6),
+    N = (1 << 7),
+};
 
 typedef struct {
     RAM *ram;
