@@ -24,12 +24,11 @@ typedef struct {
     uint8_t     status;
     uint16_t    pc;
 
+    uint8_t     opcode;
+    uint8_t     cycles;
     uint16_t    addr_abs;
     uint16_t    addr_rel;
-    uint8_t     opcode;
     bool        is_am_imm;
-    uint8_t     cycles;
-    uint32_t    clock_count;
 } CPU;
 
 enum CpuFlag {
@@ -42,6 +41,14 @@ enum CpuFlag {
     V = (1 << 6),
     N = (1 << 7),
 };
+
+typedef uint8_t (*CpuAddressMode)(CPU*);
+typedef uint8_t (*CpuOperation)(CPU*);
+typedef struct {
+    CpuOperation op;
+    CpuAddressMode am;
+    uint8_t cycles;
+} CpuInstruction;
 
 typedef struct {
     RAM *ram;

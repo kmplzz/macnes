@@ -3,6 +3,9 @@
 #include "cpu.h"
 #include "bus.h"
 
+uint8_t cpu_get_flag(CPU *cpu, enum CpuFlag flag);
+void cpu_set_flag(CPU *cpu, enum CpuFlag flag, bool value);
+
 CPU* cpu_init() {
     return (CPU*) calloc(1, sizeof(CPU));
 }
@@ -11,8 +14,19 @@ void cpu_destroy(CPU *cpu) {
     free(cpu);
 }
 
-void cpu_clock(CPU *cpu) {
-
+void cpu_reset(CPU *cpu) {
+    uint16_t pc_addr = 0xFFFC;
+    uint16_t lo = bus_read(cpu->bus, pc_addr);
+    uint16_t hi = bus_read(cpu->bus, pc_addr + 1);
+    cpu->pc = (hi << 8) | lo;
+    cpu->a = 0;
+    cpu->x = 0;
+    cpu->y = 0;
+    cpu->sp = 0xFD;
+    cpu->status = 0x00 | U;
+    cpu->addr_rel = 0x0000;
+    cpu->addr_abs = 0x0000;
+    cpu->cycles = 8;
 }
 
 uint8_t cpu_fetch_operand(CPU *cpu) {
@@ -368,7 +382,13 @@ uint8_t i_LDY(CPU *cpu) {
 }
 
 uint8_t i_LSR(CPU *cpu) {
-    // TODO
+    uint8_t op = cpu_fetch_operand(cpu);
+    cpu_set_flag(cpu, C, op & 0x0001);
+    uint16_t temp = op >> 1;
+    cpu_set_flag(cpu, Z, (temp & 0x00FF) == 0);
+    cpu_set_flag(cpu, N, temp & 0x0080);
+    if (cpu->is_am_imm) cpu->a = temp & 0x00FF;
+    else bus_write(cpu->bus, cpu->addr_abs, temp & 0x00FF);
     return 0;
 }
 
@@ -381,8 +401,9 @@ uint8_t i_NOP(CPU *cpu) {
         case 0xDC:
         case 0xFC:
             return 1;
+        default:
+            return 0;
     }
-    return 0;
 }
 
 uint8_t i_ORA(CPU *cpu) {
@@ -399,7 +420,8 @@ uint8_t i_PHA(CPU *cpu) {
 }
 
 uint8_t i_PHP(CPU *cpu) {
-    cpu_set_flag(cpu, B | U, true);
+    cpu_set_flag(cpu, B, true);
+    cpu_set_flag(cpu, U, true);
     bus_write(cpu->bus, 0x0100 + cpu->sp, cpu->status);
     cpu->sp--;
     return 0;
@@ -421,17 +443,36 @@ uint8_t i_PLP(CPU *cpu) {
 }
 
 uint8_t i_ROL(CPU *cpu) {
-    // TODO
+    uint8_t op = cpu_fetch_operand(cpu);
+    uint16_t temp = (uint16_t) (op << 1) | cpu_get_flag(cpu, C);
+    cpu_set_flag(cpu, C, temp & 0xFF00);
+    cpu_set_flag(cpu, Z, (temp & 0x00FF) == 0);
+    cpu_set_flag(cpu, N, temp & 0x0080);
+    if (cpu->is_am_imm) cpu->a = temp & 0x00FF;
+    else bus_write(cpu->bus, cpu->addr_abs, temp & 0x00FF);
     return 0;
 }
 
 uint8_t i_ROR(CPU *cpu) {
-    // TODO
+    uint8_t op = cpu_fetch_operand(cpu);
+    uint16_t temp = (uint16_t) (cpu_get_flag(cpu, C) << 7) | (op >> 1);
+    cpu_set_flag(cpu, C, op & 0x01);
+    cpu_set_flag(cpu, Z, (temp & 0x00FF) == 0);
+    cpu_set_flag(cpu, N, temp & 0x0080);
+    if (cpu->is_am_imm) cpu->a = temp & 0x00FF;
+    else bus_write(cpu->bus, cpu->addr_abs, temp & 0x00FF);
     return 0;
 }
 
 uint8_t i_RTI(CPU *cpu) {
-    // TODO
+    cpu->sp++;
+    cpu->status = bus_read(cpu->bus, 0x0100 + cpu->sp);
+    cpu->status &= ~B;
+    cpu->status &= ~U;
+    cpu->sp++;
+    cpu->pc = (uint16_t) bus_read(cpu->bus, 0x0100 + cpu->sp);
+    cpu->sp++;
+    cpu->pc |= (uint16_t) bus_read(cpu->bus, 0x0100 + cpu->sp) << 8;
     return 0;
 }
 
@@ -516,4 +557,149 @@ uint8_t i_TYA(CPU *cpu) {
 
 uint8_t i_XXX(CPU *cpu) {
     return 0;
+}
+
+static const CpuInstruction CPU_INSTRUCTION_LOOKUP[256] = {
+        {i_BRK, am_IMM, 7}, {i_ORA, am_IZX, 6},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 3}, {i_ORA, am_ZP0, 3},
+        {i_ASL, am_ZP0, 5}, {i_XXX, am_IMP, 5},
+        {i_PHP, am_IMP, 3}, {i_ORA, am_IMM, 2},
+        {i_ASL, am_IMP, 2}, {i_XXX, am_IMP, 2},
+        {i_NOP, am_IMP, 4}, {i_ORA, am_ABS, 4},
+        {i_ASL, am_ABS, 6}, {i_XXX, am_IMP, 6},
+        {i_BPL, am_REL, 2}, {i_ORA, am_IZY, 5},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 4}, {i_ORA, am_ZPX, 4},
+        {i_ASL, am_ZPX, 6}, {i_XXX, am_IMP, 6},
+        {i_CLC, am_IMP, 2}, {i_ORA, am_ABY, 4},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 7},
+        {i_NOP, am_IMP, 4}, {i_ORA, am_ABX, 4},
+        {i_ASL, am_ABX, 7}, {i_XXX, am_IMP, 7},
+        {i_JSR, am_ABS, 6}, {i_AND, am_IZX, 6},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_BIT, am_ZP0, 3}, {i_AND, am_ZP0, 3},
+        {i_ROL, am_ZP0, 5}, {i_XXX, am_IMP, 5},
+        {i_PLP, am_IMP, 4}, {i_AND, am_IMM, 2},
+        {i_ROL, am_IMP, 2}, {i_XXX, am_IMP, 2},
+        {i_BIT, am_ABS, 4}, {i_AND, am_ABS, 4},
+        {i_ROL, am_ABS, 6}, {i_XXX, am_IMP, 6},
+        {i_BMI, am_REL, 2}, {i_AND, am_IZY, 5},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 4}, {i_AND, am_ZPX, 4},
+        {i_ROL, am_ZPX, 6}, {i_XXX, am_IMP, 6},
+        {i_SEC, am_IMP, 2}, {i_AND, am_ABY, 4},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 7},
+        {i_NOP, am_IMP, 4}, {i_AND, am_ABX, 4},
+        {i_ROL, am_ABX, 7}, {i_XXX, am_IMP, 7},
+        {i_RTI, am_IMP, 6}, {i_EOR, am_IZX, 6},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 3}, {i_EOR, am_ZP0, 3},
+        {i_LSR, am_ZP0, 5}, {i_XXX, am_IMP, 5},
+        {i_PHA, am_IMP, 3}, {i_EOR, am_IMM, 2},
+        {i_LSR, am_IMP, 2}, {i_XXX, am_IMP, 2},
+        {i_JMP, am_ABS, 3}, {i_EOR, am_ABS, 4},
+        {i_LSR, am_ABS, 6}, {i_XXX, am_IMP, 6},
+        {i_BVC, am_REL, 2}, {i_EOR, am_IZY, 5},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 4}, {i_EOR, am_ZPX, 4},
+        {i_LSR, am_ZPX, 6}, {i_XXX, am_IMP, 6},
+        {i_CLI, am_IMP, 2}, {i_EOR, am_ABY, 4},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 7},
+        {i_NOP, am_IMP, 4}, {i_EOR, am_ABX, 4},
+        {i_LSR, am_ABX, 7}, {i_XXX, am_IMP, 7},
+        {i_RTS, am_IMP, 6}, {i_ADC, am_IZX, 6},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 3}, {i_ADC, am_ZP0, 3},
+        {i_ROR, am_ZP0, 5}, {i_XXX, am_IMP, 5},
+        {i_PLA, am_IMP, 4}, {i_ADC, am_IMM, 2},
+        {i_ROR, am_IMP, 2}, {i_XXX, am_IMP, 2},
+        {i_JMP, am_IND, 5}, {i_ADC, am_ABS, 4},
+        {i_ROR, am_ABS, 6}, {i_XXX, am_IMP, 6},
+        {i_BVS, am_REL, 2}, {i_ADC, am_IZY, 5},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 4}, {i_ADC, am_ZPX, 4},
+        {i_ROR, am_ZPX, 6}, {i_XXX, am_IMP, 6},
+        {i_SEI, am_IMP, 2}, {i_ADC, am_ABY, 4},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 7},
+        {i_NOP, am_IMP, 4}, {i_ADC, am_ABX, 4},
+        {i_ROR, am_ABX, 7}, {i_XXX, am_IMP, 7},
+        {i_NOP, am_IMP, 2}, {i_STA, am_IZX, 6},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 6},
+        {i_STY, am_ZP0, 3}, {i_STA, am_ZP0, 3},
+        {i_STX, am_ZP0, 3}, {i_XXX, am_IMP, 3},
+        {i_DEY, am_IMP, 2}, {i_NOP, am_IMP, 2},
+        {i_TXA, am_IMP, 2}, {i_XXX, am_IMP, 2},
+        {i_STY, am_ABS, 4}, {i_STA, am_ABS, 4},
+        {i_STX, am_ABS, 4}, {i_XXX, am_IMP, 4},
+        {i_BCC, am_REL, 2}, {i_STA, am_IZY, 6},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 6},
+        {i_STY, am_ZPX, 4}, {i_STA, am_ZPX, 4},
+        {i_STX, am_ZPY, 4}, {i_XXX, am_IMP, 4},
+        {i_TYA, am_IMP, 2}, {i_STA, am_ABY, 5},
+        {i_TXS, am_IMP, 2}, {i_XXX, am_IMP, 5},
+        {i_NOP, am_IMP, 5}, {i_STA, am_ABX, 5},
+        {i_XXX, am_IMP, 5}, {i_XXX, am_IMP, 5},
+        {i_LDY, am_IMM, 2}, {i_LDA, am_IZX, 6},
+        {i_LDX, am_IMM, 2}, {i_XXX, am_IMP, 6},
+        {i_LDY, am_ZP0, 3}, {i_LDA, am_ZP0, 3},
+        {i_LDX, am_ZP0, 3}, {i_XXX, am_IMP, 3},
+        {i_TAY, am_IMP, 2}, {i_LDA, am_IMM, 2},
+        {i_TAX, am_IMP, 2}, {i_XXX, am_IMP, 2},
+        {i_LDY, am_ABS, 4}, {i_LDA, am_ABS, 4},
+        {i_LDX, am_ABS, 4}, {i_XXX, am_IMP, 4},
+        {i_BCS, am_REL, 2}, {i_LDA, am_IZY, 5},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 5},
+        {i_LDY, am_ZPX, 4}, {i_LDA, am_ZPX, 4},
+        {i_LDX, am_ZPY, 4}, {i_XXX, am_IMP, 4},
+        {i_CLV, am_IMP, 2}, {i_LDA, am_ABY, 4},
+        {i_TSX, am_IMP, 2}, {i_XXX, am_IMP, 4},
+        {i_LDY, am_ABX, 4}, {i_LDA, am_ABX, 4},
+        {i_LDX, am_ABY, 4}, {i_XXX, am_IMP, 4},
+        {i_CPY, am_IMM, 2}, {i_CMP, am_IZX, 6},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_CPY, am_ZP0, 3}, {i_CMP, am_ZP0, 3},
+        {i_DEC, am_ZP0, 5}, {i_XXX, am_IMP, 5},
+        {i_INY, am_IMP, 2}, {i_CMP, am_IMM, 2},
+        {i_DEX, am_IMP, 2}, {i_XXX, am_IMP, 2},
+        {i_CPY, am_ABS, 4}, {i_CMP, am_ABS, 4},
+        {i_DEC, am_ABS, 6}, {i_XXX, am_IMP, 6},
+        {i_BNE, am_REL, 2}, {i_CMP, am_IZY, 5},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 4}, {i_CMP, am_ZPX, 4},
+        {i_DEC, am_ZPX, 6}, {i_XXX, am_IMP, 6},
+        {i_CLD, am_IMP, 2}, {i_CMP, am_ABY, 4},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 7},
+        {i_NOP, am_IMP, 4}, {i_CMP, am_ABX, 4},
+        {i_DEC, am_ABX, 7}, {i_XXX, am_IMP, 7},
+        {i_CPX, am_IMM, 2}, {i_SBC, am_IZX, 6},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_CPX, am_ZP0, 3}, {i_SBC, am_ZP0, 3},
+        {i_INC, am_ZP0, 5}, {i_XXX, am_IMP, 5},
+        {i_INX, am_IMP, 2}, {i_SBC, am_IMM, 2},
+        {i_NOP, am_IMP, 2}, {i_SBC, am_IMP, 2},
+        {i_CPX, am_ABS, 4}, {i_SBC, am_ABS, 4},
+        {i_INC, am_ABS, 6}, {i_XXX, am_IMP, 6},
+        {i_BEQ, am_REL, 2}, {i_SBC, am_IZY, 5},
+        {i_XXX, am_IMP, 2}, {i_XXX, am_IMP, 8},
+        {i_NOP, am_IMP, 4}, {i_SBC, am_ZPX, 4},
+        {i_INC, am_ZPX, 6}, {i_XXX, am_IMP, 6},
+        {i_SED, am_IMP, 2}, {i_SBC, am_ABY, 4},
+        {i_NOP, am_IMP, 2}, {i_XXX, am_IMP, 7},
+        {i_NOP, am_IMP, 4}, {i_SBC, am_ABX, 4},
+        {i_INC, am_ABX, 7}, {i_XXX, am_IMP, 7}
+};
+
+void cpu_clock(CPU *cpu) {
+    if (cpu->cycles == 0) {
+        cpu->opcode = bus_read(cpu->bus, cpu->pc);
+        cpu_set_flag(cpu, U, true);
+        cpu->pc++;
+        CpuInstruction instruction = CPU_INSTRUCTION_LOOKUP[cpu->opcode];
+        uint8_t additional_cycles_am = instruction.am(cpu);
+        uint8_t additional_cycles_i = instruction.op(cpu);
+        cpu->cycles = instruction.cycles + (additional_cycles_am & additional_cycles_i);
+        cpu_set_flag(cpu, U, true);
+    }
+    cpu->cycles--;
 }
